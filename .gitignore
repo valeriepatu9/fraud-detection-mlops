@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+venv/
+.venv/
+
+# MLflow
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Artefacts du pipeline
+artifacts/
+logs/
+final_model/*.pkl
+
+# Env
+.env
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/

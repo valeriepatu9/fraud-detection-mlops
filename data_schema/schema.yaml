@@ -1,0 +1,21 @@
+columns:
+  amount: float64                  # montant de la transaction (€)
+  hour: int64                      # heure de la journée (0-23)
+  distance_from_home_km: float64   # distance vs lieu habituel (km)
+  is_new_device: int64             # 1 si appareil jamais vu
+  is_foreign_country: int64        # 1 si pays étranger
+  transactions_last_24h: int64     # nombre de transactions sur 24h (vélocité)
+  avg_amount_last_30d: float64     # montant moyen sur 30 jours (€)
+  amount_to_avg_ratio: float64     # montant / moyenne 30j
+
+target_column: is_fraud            # 1 = fraude, 0 = légitime
+
+numerical_columns:
+  - amount
+  - hour
+  - distance_from_home_km
+  - is_new_device
+  - is_foreign_country
+  - transactions_last_24h
+  - avg_amount_last_30d
+  - amount_to_avg_ratio
