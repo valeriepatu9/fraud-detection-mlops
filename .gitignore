@@ -25,3 +25,5 @@ final_model/*.pkl
 .DS_Store
 .vscode/
 .idea/
+nginx/certs/*.key
+nginx/certs/*.crt
