@@ -10,8 +10,14 @@ services:
       --host 0.0.0.0
       --port 5000
       --allowed-hosts "*"
+      --workers 1
     environment:
       MLFLOW_ALLOW_HOSTS: "*"
+      MALLOC_ARENA_MAX: "2"
+    deploy:
+      resources:
+        limits:
+          memory: 700m
     ports:
       - "5000:5000"
     volumes:
@@ -21,7 +27,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-      start_period: 20s
+      start_period: 30s
 
   trainer:
     build: .
