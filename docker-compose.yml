@@ -1,0 +1,50 @@
+services:
+  mlflow:
+    build: .
+    image: fraud-detection-mlops
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --artifacts-destination /mlflow/mlartifacts
+      --serve-artifacts
+      --host 0.0.0.0
+      --port 5000
+      --allowed-hosts "*"
+    environment:
+      MLFLOW_ALLOW_HOSTS: "*"
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  trainer:
+    build: .
+    image: fraud-detection-mlops
+    command: python main.py
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    profiles: ["tools"]
+
+  app:
+    build: .
+    image: fraud-detection-mlops
+    command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "8501:8501"
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
+volumes:
+  mlflow-data:
