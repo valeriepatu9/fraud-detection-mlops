@@ -1,7 +1,9 @@
 services:
   mlflow:
-    build: .
-    image: fraud-detection-mlops
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+    image: fraud-mlflow
     command: >
       mlflow server
       --backend-store-uri sqlite:///mlflow/mlflow.db
@@ -9,15 +11,9 @@ services:
       --serve-artifacts
       --host 0.0.0.0
       --port 5000
-      --allowed-hosts "*"
       --workers 1
     environment:
-      MLFLOW_ALLOW_HOSTS: "*"
       MALLOC_ARENA_MAX: "2"
-    deploy:
-      resources:
-        limits:
-          memory: 900m
     ports:
       - "5000:5000"
     volumes:
@@ -30,8 +26,10 @@ services:
       start_period: 30s
 
   trainer:
-    build: .
-    image: fraud-detection-mlops
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fraud-app
     command: python main.py
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
@@ -41,8 +39,7 @@ services:
     profiles: ["tools"]
 
   app:
-    build: .
-    image: fraud-detection-mlops
+    image: fraud-app
     command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000

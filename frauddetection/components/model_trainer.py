@@ -76,7 +76,7 @@ class ModelTrainer:
             # Logge ET enregistre le modèle dans le Registry (crée une nouvelle version)
             result = mlflow.sklearn.log_model(
                 sk_model=pipe,
-                name="model",
+                artifact_path="model",
                 registered_model_name=self.config.registered_model_name,
                 input_example=Xte.head(2),
             )
