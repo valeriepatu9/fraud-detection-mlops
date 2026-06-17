@@ -39,6 +39,9 @@ services:
     profiles: ["tools"]
 
   app:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: fraud-app
     command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501
     environment:
