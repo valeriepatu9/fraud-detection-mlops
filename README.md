@@ -119,8 +119,3 @@ Un `Dockerfile` est fourni. Passer l'URL du tracking via la variable d'env :
 docker build -t fraud-app .
 docker run -e MLFLOW_TRACKING_URI=http://<host>:5000 -p 8501:8501 fraud-app
 ```
-
-> ⚠️ Pour une démo **live**, prévois un plan B en local (`mlflow server` +
-> `streamlit run app.py` sur ton laptop) : certains réseaux d'entreprise
-> bloquent les ports non standard, et tu ne veux pas dépendre du wifi de la
-> salle au moment du basculement.
