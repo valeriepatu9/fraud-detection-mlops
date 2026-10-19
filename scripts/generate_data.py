@@ -43,11 +43,16 @@ FEATURE_COLUMNS = [
 TARGET_COLUMN = "is_fraud"
 
 
-def generate(n_samples=N_SAMPLES, label_noise=LABEL_NOISE, random_state=RANDOM_STATE):
+def generate(n_samples=N_SAMPLES, label_noise=LABEL_NOISE, random_state=RANDOM_STATE,
+             p_high_roller=0.10, p_international=0.18, p_new_device=0.12,
+             p_foreign=0.10, tx_rate=3, card_testing=False):
+    """Les paramètres p_* / tx_rate pilotent les distributions (=> data drift) ;
+    card_testing ajoute une règle de fraude inédite (=> concept drift).
+    Les valeurs par défaut reproduisent exactement le jeu d'entraînement."""
     rng = np.random.default_rng(random_state)
 
     # Solde moyen : majorité de clients standards + une minorité de "high rollers"
-    is_high_roller = rng.random(n_samples) < 0.10
+    is_high_roller = rng.random(n_samples) < p_high_roller
     avg_amount = np.where(
         is_high_roller,
         np.abs(rng.normal(200, 80, n_samples)) + 50,
@@ -62,16 +67,16 @@ def generate(n_samples=N_SAMPLES, label_noise=LABEL_NOISE, random_state=RANDOM_S
     is_night = (hour < 6) | (hour >= 23)
 
     # Distance bimodale : domestique (proche) vs international (loin)
-    is_international = rng.random(n_samples) < 0.18
+    is_international = rng.random(n_samples) < p_international
     distance = np.where(
         is_international,
         np.abs(rng.normal(700, 500, n_samples)) + 100,
         np.abs(rng.normal(15, 35, n_samples)),
     )
 
-    is_new_device = rng.random(n_samples) < 0.12
-    is_foreign = rng.random(n_samples) < 0.10
-    tx_24h = rng.poisson(3, n_samples)
+    is_new_device = rng.random(n_samples) < p_new_device
+    is_foreign = rng.random(n_samples) < p_foreign
+    tx_24h = rng.poisson(tx_rate, n_samples)
 
     big = amount > 3 * avg_amount
     far = distance > 150
@@ -86,6 +91,11 @@ def generate(n_samples=N_SAMPLES, label_noise=LABEL_NOISE, random_state=RANDOM_S
         | (is_new_device & is_foreign & far)
         | (is_night & is_foreign & veloc)
     )
+    if card_testing:
+        # Nouveau mode opératoire : rafales de petits paiements pour tester une
+        # carte volée. Jamais vu à l'entraînement : le modèle ne peut pas le capter.
+        small = amount < 0.5 * avg_amount
+        fraud = fraud | (veloc & small)
     y = np.asarray(fraud).astype(int)
 
     # Bruit de label : on "rate" une fraction des fraudes pour éviter un signal parfait

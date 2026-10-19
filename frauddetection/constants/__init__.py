@@ -31,3 +31,11 @@ CHAMPION_ALIAS = "champion"
 
 # Seuil de décision pour qualifier une transaction de frauduleuse
 DECISION_THRESHOLD = 0.5
+
+# --- Monitoring du drift (Evidently) ---
+DRIFT_EXPERIMENT_NAME = "fraud_drift_monitoring"
+REPORTS_DIR = "reports"
+# Features binaires : traitées comme catégorielles par Evidently (test adapté)
+CATEGORICAL_COLUMNS = ["is_new_device", "is_foreign_country"]
+# Part de features en drift au-delà de laquelle on déclare le jeu "en drift"
+DRIFT_SHARE = 0.5
