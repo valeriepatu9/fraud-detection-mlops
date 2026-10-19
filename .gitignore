@@ -27,3 +27,5 @@ final_model/*.pkl
 .idea/
 nginx/certs/*.key
 nginx/certs/*.crt
+# Clés privées
+*.pem

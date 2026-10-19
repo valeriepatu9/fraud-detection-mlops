@@ -4,16 +4,25 @@ services:
       context: .
       dockerfile: Dockerfile.mlflow
     image: fraud-mlflow
-    command: >
-      mlflow server
-      --backend-store-uri sqlite:///mlflow/mlflow.db
-      --artifacts-destination /mlflow/mlartifacts
-      --serve-artifacts
-      --host 0.0.0.0
-      --port 5000
-      --workers 1
+    # Migre le schéma d'une base existante (ex. créée en 2.x) avant de démarrer
+    command:
+      - sh
+      - -c
+      - >
+        if [ -f /mlflow/mlflow.db ]; then mlflow db upgrade sqlite:///mlflow/mlflow.db; fi &&
+        exec mlflow server
+        --backend-store-uri sqlite:///mlflow/mlflow.db
+        --artifacts-destination /mlflow/mlartifacts
+        --serve-artifacts
+        --host 0.0.0.0
+        --port 5000
+        --workers 1
     environment:
       MALLOC_ARENA_MAX: "2"
+      # Hosts acceptés par MLflow 3.x (protection DNS rebinding) : nom du service
+      # pour les autres conteneurs + localhost. Sur l'EC2, ajouter l'IP / le DNS
+      # public dans .env pour accéder à l'UI depuis un navigateur.
+      MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_SERVER_ALLOWED_HOSTS:-mlflow,mlflow:*,localhost,localhost:*,127.0.0.1,127.0.0.1:*}
     ports:
       - "5000:5000"
     volumes:

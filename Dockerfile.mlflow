@@ -1,5 +1,13 @@
 FROM python:3.11-slim
 
-RUN pip install --no-cache-dir mlflow==2.19.0
+# Même version que requirements.txt (client et serveur alignés).
+# [auth] : authentification basique, utilisée sur Cloud Run (voir gcp/).
+RUN pip install --no-cache-dir "mlflow[auth]==3.17.1"
+
+# Corrige le bug de l'UI lors de la modification d'un alias (voir le script)
+COPY scripts/patch_mlflow_ui.py /tmp/patch_mlflow_ui.py
+RUN python /tmp/patch_mlflow_ui.py && rm /tmp/patch_mlflow_ui.py
+
+COPY gcp/basic_auth.ini /etc/mlflow/basic_auth.ini
 
 EXPOSE 5000
