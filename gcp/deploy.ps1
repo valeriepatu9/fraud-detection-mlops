@@ -79,7 +79,10 @@ if ($Target -in "all", "mlflow") {
             --allow-unauthenticated `
             --add-volume "name=mlflow,type=cloud-storage,bucket=$Bucket" `
             --add-volume-mount "volume=mlflow,mount-path=/mlflow" `
-            --set-env-vars "MLFLOW_SERVER_ALLOWED_HOSTS=*.run.app,MLFLOW_AUTH_CONFIG_PATH=/etc/mlflow/basic_auth.ini,MALLOC_ARENA_MAX=2" `
+            # CORS : MLflow 3.x bloque les écritures (POST/DELETE) dont l'Origin n'est pas
+            # localhost, y compris celles de sa propre UI sur Cloud Run -> autoriser ses URLs.
+            # "^@^" : séparateur alternatif, la valeur des origines contient des virgules.
+            --set-env-vars "^@^MLFLOW_SERVER_ALLOWED_HOSTS=*.run.app@MLFLOW_SERVER_CORS_ALLOWED_ORIGINS=https://mlflow-*.run.app@MLFLOW_AUTH_CONFIG_PATH=/etc/mlflow/basic_auth.ini@MALLOC_ARENA_MAX=2" `
             --set-secrets "MLFLOW_AUTH_ADMIN_PASSWORD=mlflow-admin-password:latest,MLFLOW_FLASK_SERVER_SECRET_KEY=mlflow-flask-secret:latest" `
             --command sh --args "-c,$serverCmd"
     }
