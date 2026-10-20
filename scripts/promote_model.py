@@ -5,6 +5,11 @@ bon modèle (RandomForest, v2) en production. L'application qui charge
 `models:/FraudDetector@champion` servira alors automatiquement cette version
 au prochain rafraîchissement.
 
+Rollback : la promotion ne supprime rien. Revenir en arrière consiste à
+redéplacer l'alias vers l'ancienne version, que le script affiche à chaque
+promotion :
+    python scripts/promote_model.py <ancienne version>
+
 Usage :
     python scripts/promote_model.py 2        # promeut la version 2
     python scripts/promote_model.py          # promeut la dernière version
@@ -41,10 +46,17 @@ def promote(version: str | None = None):
     if target is None:
         raise SystemExit(f"Version {version} introuvable.")
 
+    try:
+        previous = client.get_model_version_by_alias(REGISTERED_MODEL_NAME, CHAMPION_ALIAS).version
+    except Exception:
+        previous = None
+
     algo = target.tags.get("algo", "?")
     client.set_registered_model_alias(REGISTERED_MODEL_NAME, CHAMPION_ALIAS, version)
     print(f"OK — alias '{CHAMPION_ALIAS}' déplacé vers {REGISTERED_MODEL_NAME} v{version} ({algo}).")
     print("Rafraîchis l'application : elle sert désormais ce modèle.")
+    if previous and previous != str(version):
+        print(f"Rollback si besoin : python scripts/promote_model.py {previous}")
 
 
 if __name__ == "__main__":

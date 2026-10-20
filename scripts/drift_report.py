@@ -48,7 +48,7 @@ from frauddetection.constants import (
     SLICE_COLUMN,
     TARGET_COLUMN,
 )
-from frauddetection.utils.ml_utils import compute_classification_metrics
+from frauddetection.utils.ml_utils import format_slice, slice_metrics
 from frauddetection.utils.reference import load_reference
 
 PREDICTION_COLUMN = "prediction"
@@ -106,29 +106,9 @@ def is_drifted(info: dict) -> bool:
     return info["score"] >= info["threshold"]
 
 
-def slice_metrics(df: pd.DataFrame) -> dict:
-    """Performance en global et par tranche de SLICE_COLUMN (0 / 1)."""
-    out = {}
-    parts = [("global", df)] + [(f"{SLICE_COLUMN}={v}", df[df[SLICE_COLUMN] == v]) for v in (0, 1)]
-    for name, part in parts:
-        m = compute_classification_metrics(part[TARGET_COLUMN], part[PREDICTION_COLUMN])
-        n_frauds = int(part[TARGET_COLUMN].sum())
-        out[name] = {
-            "n": len(part),
-            "n_frauds": n_frauds,
-            "fraud_rate": part[TARGET_COLUMN].mean() if len(part) else 0.0,
-            "recall": m.recall,
-            "precision": m.precision,
-            "f1": m.f1_score,
-            "fragile": n_frauds < FRAGILE_MIN_FRAUDS,
-        }
-    return out
-
-
-def fmt_slice(s: dict) -> str:
-    flag = "  FRAGILE" if s["fragile"] else ""
-    return (f"{s['n']:>7}{s['n_frauds']:>8}{s['fraud_rate']:>8.2%}"
-            f"{s['recall']:>8.3f}{s['precision']:>8.3f}{s['f1']:>7.3f}{flag}")
+def perf(df: pd.DataFrame) -> dict:
+    return slice_metrics(df[TARGET_COLUMN], df[PREDICTION_COLUMN], df[SLICE_COLUMN],
+                         SLICE_COLUMN, FRAGILE_MIN_FRAUDS)
 
 
 def run(batch_arg: str):
@@ -155,7 +135,7 @@ def run(batch_arg: str):
     drifted = [col for col, info in scores.items() if is_drifted(info)]
     alert_ref = float(ref[PREDICTION_COLUMN].mean())
     alert_cur = float(cur[PREDICTION_COLUMN].mean())
-    perf_ref, perf_cur = slice_metrics(ref), slice_metrics(cur)
+    perf_ref, perf_cur = perf(ref), perf(cur)
     fragile = [k for k, s in perf_cur.items() if s["fragile"]]
 
     mlflow.set_experiment(DRIFT_EXPERIMENT_NAME)
@@ -204,8 +184,8 @@ def run(batch_arg: str):
     print("\n[B] DISPONIBLE À L'ARRIVÉE DES LABELS (un à trois mois plus tard)\n")
     print(f"{'tranche':<24}{'':<6}{'n':>7}{'fraudes':>8}{'taux':>8}{'recall':>8}{'précis.':>8}{'F1':>7}")
     for name in perf_cur:
-        print(f"{name:<24}{'réf':<6}{fmt_slice(perf_ref[name])}")
-        print(f"{'':<24}{'lot':<6}{fmt_slice(perf_cur[name])}")
+        print(f"{name:<24}{'réf':<6}{format_slice(perf_ref[name])}")
+        print(f"{'':<24}{'lot':<6}{format_slice(perf_cur[name])}")
     print(f"\nFRAGILE : moins de {FRAGILE_MIN_FRAUDS} fraudes dans la tranche, métriques peu fiables.")
     print(f"\nRapport HTML : {os.path.abspath(html_path)} (aussi dans MLflow, expérience '{DRIFT_EXPERIMENT_NAME}')")
 

@@ -41,6 +41,7 @@ DECISION_THRESHOLD = 0.5
 
 # --- Monitoring du drift (Evidently) ---
 DRIFT_EXPERIMENT_NAME = "fraud_drift_monitoring"
+COMPARISON_EXPERIMENT_NAME = "fraud_model_comparison"
 REPORTS_DIR = "reports"
 # Features binaires : traitées comme catégorielles par Evidently (test adapté)
 CATEGORICAL_COLUMNS = ["is_new_device", "is_foreign_country"]
