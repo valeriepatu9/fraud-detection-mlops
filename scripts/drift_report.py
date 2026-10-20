@@ -1,21 +1,25 @@
-"""Rapport de drift Evidently : compare un lot de production à la référence.
+"""Rapport de drift Evidently : compare un lot de production à la référence du champion.
 
-  - Référence : le jeu de test hold-out (artifacts/test.csv), que le modèle n'a
-    pas vu à l'entraînement -> ses performances y sont représentatives.
+  - Référence : le jeu de test hold-out du champion en cours, versionné avec
+    le modèle (artifact reference/test.csv, tag reference_sha256). Après un
+    réentraînement, la référence du nouveau champion est son propre jeu de test.
   - Lot courant : un CSV de production (voir scripts/generate_drift_data.py).
 
-Le rapport couvre deux volets :
-  1. Data drift   : la distribution de chaque feature a-t-elle bougé ?
-  2. Performance  : le champion détecte-t-il toujours la fraude ? (suppose que
-                    les labels du lot sont connus, ce qui en vrai arrive avec
-                    retard : rétrofacturations, enquêtes...)
+Le rapport sépare ce que l'on sait à deux moments différents :
 
-Tout est loggé dans MLflow (expérience 'fraud_drift_monitoring') : scores de
-drift et métriques en metrics, rapport HTML en artifact.
+  A. Disponible tout de suite (sans labels) : drift variable par variable,
+     verdict global, taux d'alertes du champion.
+  B. Disponible à l'arrivée des labels, un à trois mois plus tard en fraude
+     (contestations, enquêtes) : taux de fraude, recall, précision, F1, en
+     global et par tranche is_foreign_country.
+
+Tout est loggé dans MLflow (expérience 'fraud_drift_monitoring', un run par
+lot) : métriques "now__*" pour le bloc A, "labels__*" pour le bloc B, rapport
+HTML Evidently en artifact.
 
 Usage :
-    python scripts/drift_report.py prod_ok
-    python scripts/drift_report.py prod_data_drift
+    python scripts/drift_report.py prod_normal
+    python scripts/drift_report.py prod_foreign_card
     python scripts/drift_report.py fraud_data/mon_lot.csv
 """
 
@@ -37,37 +41,30 @@ from frauddetection.constants import (
     DRIFT_EXPERIMENT_NAME,
     DRIFT_SHARE,
     FEATURE_COLUMNS,
+    FRAGILE_MIN_FRAUDS,
     MLFLOW_TRACKING_URI,
-    RAW_DATA_PATH,
     REGISTERED_MODEL_NAME,
     REPORTS_DIR,
+    SLICE_COLUMN,
     TARGET_COLUMN,
 )
-from frauddetection.entity.config_entity import DataIngestionConfig
 from frauddetection.utils.ml_utils import compute_classification_metrics
+from frauddetection.utils.reference import load_reference
 
 PREDICTION_COLUMN = "prediction"
 
 
 def resolve_batch(arg: str) -> tuple[str, str]:
-    """Accepte un nom de lot ('prod_ok') ou un chemin vers un CSV."""
+    """Accepte un nom de lot ('prod_normal') ou un chemin vers un CSV."""
     path = arg if arg.endswith(".csv") else os.path.join("fraud_data", f"{arg}.csv")
     if not os.path.exists(path):
         raise SystemExit(f"Lot introuvable : {path} (lancer scripts/generate_drift_data.py ?)")
     return os.path.splitext(os.path.basename(path))[0], path
 
 
-def reference_path() -> str:
-    test_path = DataIngestionConfig().test_path
-    if os.path.exists(test_path):
-        return test_path
-    print(f"[!] {test_path} absent (python main.py pas lancé ?) : référence = {RAW_DATA_PATH}")
-    return RAW_DATA_PATH
-
-
 def load_champion():
-    model = mlflow.sklearn.load_model(f"models:/{REGISTERED_MODEL_NAME}@{CHAMPION_ALIAS}")
     mv = MlflowClient().get_model_version_by_alias(REGISTERED_MODEL_NAME, CHAMPION_ALIAS)
+    model = mlflow.sklearn.load_model(f"models:/{REGISTERED_MODEL_NAME}/{mv.version}")
     return model, mv.version, mv.tags.get("algo", "?")
 
 
@@ -109,14 +106,38 @@ def is_drifted(info: dict) -> bool:
     return info["score"] >= info["threshold"]
 
 
+def slice_metrics(df: pd.DataFrame) -> dict:
+    """Performance en global et par tranche de SLICE_COLUMN (0 / 1)."""
+    out = {}
+    parts = [("global", df)] + [(f"{SLICE_COLUMN}={v}", df[df[SLICE_COLUMN] == v]) for v in (0, 1)]
+    for name, part in parts:
+        m = compute_classification_metrics(part[TARGET_COLUMN], part[PREDICTION_COLUMN])
+        n_frauds = int(part[TARGET_COLUMN].sum())
+        out[name] = {
+            "n": len(part),
+            "n_frauds": n_frauds,
+            "fraud_rate": part[TARGET_COLUMN].mean() if len(part) else 0.0,
+            "recall": m.recall,
+            "precision": m.precision,
+            "f1": m.f1_score,
+            "fragile": n_frauds < FRAGILE_MIN_FRAUDS,
+        }
+    return out
+
+
+def fmt_slice(s: dict) -> str:
+    flag = "  FRAGILE" if s["fragile"] else ""
+    return (f"{s['n']:>7}{s['n_frauds']:>8}{s['fraud_rate']:>8.2%}"
+            f"{s['recall']:>8.3f}{s['precision']:>8.3f}{s['f1']:>7.3f}{flag}")
+
+
 def run(batch_arg: str):
     batch_name, batch_path = resolve_batch(batch_arg)
-    ref_path = reference_path()
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     model, version, algo = load_champion()
+    ref, ref_sha = load_reference(REGISTERED_MODEL_NAME, version)
 
-    ref = pd.read_csv(ref_path)
     cur = pd.read_csv(batch_path)
     for df in (ref, cur):
         df[PREDICTION_COLUMN] = model.predict(df[FEATURE_COLUMNS])
@@ -131,45 +152,66 @@ def run(batch_arg: str):
 
     count, share, scores = extract_drift(snapshot)
     dataset_drift = share >= DRIFT_SHARE
-    ref_metrics = compute_classification_metrics(ref[TARGET_COLUMN], ref[PREDICTION_COLUMN])
-    cur_metrics = compute_classification_metrics(cur[TARGET_COLUMN], cur[PREDICTION_COLUMN])
+    drifted = [col for col, info in scores.items() if is_drifted(info)]
+    alert_ref = float(ref[PREDICTION_COLUMN].mean())
+    alert_cur = float(cur[PREDICTION_COLUMN].mean())
+    perf_ref, perf_cur = slice_metrics(ref), slice_metrics(cur)
+    fragile = [k for k, s in perf_cur.items() if s["fragile"]]
 
     mlflow.set_experiment(DRIFT_EXPERIMENT_NAME)
     with mlflow.start_run(run_name=f"{batch_name}__v{version}"):
         mlflow.log_params({
             "batch": batch_name,
-            "reference": ref_path,
             "model_version": version,
             "model_algo": algo,
+            "reference_sha256": ref_sha,
             "n_rows": len(cur),
         })
-        mlflow.log_metric("drifted_columns_count", count)
-        mlflow.log_metric("drifted_columns_share", share)
+        # A. Disponible tout de suite
+        mlflow.log_metric("now__drifted_columns_count", count)
+        mlflow.log_metric("now__drifted_columns_share", share)
         for col, info in scores.items():
-            mlflow.log_metric(f"drift_score__{col}", info["score"])
-        mlflow.log_metric("fraud_rate", cur[TARGET_COLUMN].mean())
-        mlflow.log_metric("recall", cur_metrics.recall)
-        mlflow.log_metric("precision", cur_metrics.precision)
-        mlflow.log_metric("f1_score", cur_metrics.f1_score)
-        mlflow.log_metric("recall_reference", ref_metrics.recall)
-        mlflow.log_metric("recall_delta", cur_metrics.recall - ref_metrics.recall)
+            mlflow.log_metric(f"now__drift_score__{col}", info["score"])
+        mlflow.log_metric("now__alert_rate", alert_cur)
+        mlflow.log_metric("now__alert_rate_reference", alert_ref)
         mlflow.set_tag("dataset_drift", str(dataset_drift))
+        mlflow.set_tag("drifted_columns", ",".join(drifted) or "-")
+        # B. Disponible à l'arrivée des labels
+        for name, s in perf_cur.items():
+            key = "" if name == "global" else "__" + name.replace("=", "_")
+            for metric in ("fraud_rate", "recall", "precision", "f1", "n", "n_frauds"):
+                mlflow.log_metric(f"labels__{metric}{key}", s[metric])
+        mlflow.log_metric("labels__recall_reference", perf_ref["global"]["recall"])
+        mlflow.log_metric("labels__recall_delta", perf_cur["global"]["recall"] - perf_ref["global"]["recall"])
+        mlflow.set_tag("fragile_slices", ",".join(fragile) or "-")
         mlflow.log_artifact(html_path, artifact_path="evidently")
 
-    print(f"\n=== Drift : {batch_name} vs référence — champion v{version} ({algo}) ===\n")
-    print(f"{'feature':<24}{'méthode':<32}{'score':>9}{'seuil':>8}  drift")
+    print(f"\n=== {batch_name} vs référence du champion v{version} ({algo}), "
+          f"référence sha256 {ref_sha[:12]} ===")
+
+    print("\n[A] DISPONIBLE TOUT DE SUITE (sans labels)\n")
+    print(f"{'variable':<24}{'méthode':<32}{'score':>9}{'seuil':>8}  drift")
     for col, info in scores.items():
         flag = "OUI" if is_drifted(info) else "-"
         print(f"{col:<24}{info['method'] or '':<32}{info['score']:>9.3f}{info['threshold']:>8.2f}  {flag}")
-    print(f"\nFeatures en drift : {count}/{len(scores)} ({share:.0%})"
-          f" -> drift global : {'OUI' if dataset_drift else 'non'}")
-    print(f"Taux de fraude    : {ref[TARGET_COLUMN].mean():.2%} (réf) -> {cur[TARGET_COLUMN].mean():.2%}")
-    print(f"Recall champion   : {ref_metrics.recall:.3f} (réf) -> {cur_metrics.recall:.3f}")
-    print(f"Precision         : {ref_metrics.precision:.3f} (réf) -> {cur_metrics.precision:.3f}")
+    print(f"\nVariables en drift : {count}/{len(scores)} ({share:.0%})"
+          f" -> verdict global (seuil {DRIFT_SHARE:.0%} des variables) : {'OUI' if dataset_drift else 'non'}")
+    if drifted and not dataset_drift:
+        print(f"ATTENTION : verdict global « non », mais {len(drifted)} variable(s) en drift "
+              f"({', '.join(drifted)}). Le verdict global ne suffit pas : analyser chaque variable.")
+    print(f"Taux d'alertes du champion : {alert_ref:.2%} (réf) -> {alert_cur:.2%}")
+
+    print("\n[B] DISPONIBLE À L'ARRIVÉE DES LABELS (un à trois mois plus tard)\n")
+    print(f"{'tranche':<24}{'':<6}{'n':>7}{'fraudes':>8}{'taux':>8}{'recall':>8}{'précis.':>8}{'F1':>7}")
+    for name in perf_cur:
+        print(f"{name:<24}{'réf':<6}{fmt_slice(perf_ref[name])}")
+        print(f"{'':<24}{'lot':<6}{fmt_slice(perf_cur[name])}")
+    print(f"\nFRAGILE : moins de {FRAGILE_MIN_FRAUDS} fraudes dans la tranche, métriques peu fiables.")
     print(f"\nRapport HTML : {os.path.abspath(html_path)} (aussi dans MLflow, expérience '{DRIFT_EXPERIMENT_NAME}')")
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        raise SystemExit("Usage : python scripts/drift_report.py <prod_ok|prod_data_drift|prod_concept_drift|chemin.csv>")
+        raise SystemExit("Usage : python scripts/drift_report.py <prod_normal|prod_premium|prod_foreign_card|"
+                         "prod_card_testing|prod_black_friday|chemin.csv>")
     run(sys.argv[1])

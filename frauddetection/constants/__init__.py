@@ -46,3 +46,7 @@ REPORTS_DIR = "reports"
 CATEGORICAL_COLUMNS = ["is_new_device", "is_foreign_country"]
 # Part de features en drift au-delà de laquelle on déclare le jeu "en drift"
 DRIFT_SHARE = 0.5
+# Tranche de performance suivie à l'arrivée des labels (zone peu apprise)
+SLICE_COLUMN = "is_foreign_country"
+# En dessous de ce nombre de fraudes, les métriques d'une tranche sont fragiles
+FRAGILE_MIN_FRAUDS = 30
