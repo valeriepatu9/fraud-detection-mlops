@@ -18,7 +18,7 @@ setup(
     name="frauddetection",
     version="0.1.0",
     description="Détection de fraude bancaire — démo cycle de vie MLflow",
-    author="NDA Partners",
+    author="NDA",
     packages=find_packages(),
     install_requires=get_requirements(),
     python_requires=">=3.10",
