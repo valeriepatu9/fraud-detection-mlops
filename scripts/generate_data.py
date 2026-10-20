@@ -45,10 +45,14 @@ TARGET_COLUMN = "is_fraud"
 
 def generate(n_samples=N_SAMPLES, label_noise=LABEL_NOISE, random_state=RANDOM_STATE,
              p_high_roller=0.10, p_international=0.18, p_new_device=0.12,
-             p_foreign=0.10, tx_rate=3, card_testing=False):
+             p_foreign=0.005, tx_rate=3, card_testing=False):
     """Les paramètres p_* / tx_rate pilotent les distributions (=> data drift) ;
     card_testing ajoute une règle de fraude inédite (=> concept drift).
-    Les valeurs par défaut reproduisent exactement le jeu d'entraînement."""
+    Les valeurs par défaut reproduisent exactement le jeu d'entraînement.
+
+    p_foreign=0.005 : à l'entraînement, les paiements à l'étranger sont rares.
+    C'est la "zone peu apprise" que le lancement d'une carte sans frais à
+    l'étranger (lot prod_foreign_card, 15 %) viendra solliciter."""
     rng = np.random.default_rng(random_state)
 
     # Solde moyen : majorité de clients standards + une minorité de "high rollers"

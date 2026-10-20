@@ -31,3 +31,6 @@ nginx/certs/*.key
 nginx/certs/*.crt
 # Clés privées
 *.pem
+
+# Sauvegardes locales de MLflow
+backup_mlflow_*/

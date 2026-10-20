@@ -28,6 +28,13 @@ EXPERIMENT_NAME = "fraud_detection"
 REGISTERED_MODEL_NAME = "FraudDetector"
 # Alias moderne (remplace les "stages" Staging/Production dépréciés depuis MLflow 2.9)
 CHAMPION_ALIAS = "champion"
+# Nouvelle version candidate, comparée au champion avant promotion
+CHALLENGER_ALIAS = "challenger"
+
+# Référence du drift versionnée avec chaque modèle (voir utils/reference.py)
+REFERENCE_ARTIFACT_DIR = "reference"
+REFERENCE_FILE = "test.csv"
+REFERENCE_TAG = "reference_sha256"
 
 # Seuil de décision pour qualifier une transaction de frauduleuse
 DECISION_THRESHOLD = 0.5

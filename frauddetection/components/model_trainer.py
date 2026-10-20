@@ -33,6 +33,7 @@ from frauddetection.constants import (
     TARGET_COLUMN,
     MLFLOW_TRACKING_URI,
     CHAMPION_ALIAS,
+    REFERENCE_TAG,
 )
 from frauddetection.components.data_transformation import DataTransformation
 from frauddetection.entity.config_entity import ModelTrainerConfig
@@ -40,6 +41,7 @@ from frauddetection.entity.artifact_entity import DataIngestionArtifact, ModelRu
 from frauddetection.exception.exception import FraudDetectionException
 from frauddetection.logging.logger import logger
 from frauddetection.utils.ml_utils import compute_classification_metrics
+from frauddetection.utils.reference import log_reference
 
 
 class ModelTrainer:
@@ -72,6 +74,8 @@ class ModelTrainer:
             mlflow.log_metric("recall", metrics.recall)
             mlflow.log_metric("f1_score", metrics.f1_score)
             mlflow.set_tag("model_label", model_label)
+            # Le jeu de test devient la référence du drift de cette version
+            reference_sha256 = log_reference(self.ingestion.test_path)
 
             # Logge ET enregistre le modèle dans le Registry (crée une nouvelle version)
             result = mlflow.sklearn.log_model(
@@ -89,6 +93,9 @@ class ModelTrainer:
             version = self._latest_version(client)
             client.set_model_version_tag(
                 self.config.registered_model_name, version, "algo", algo_name
+            )
+            client.set_model_version_tag(
+                self.config.registered_model_name, version, REFERENCE_TAG, reference_sha256
             )
 
             return ModelRunArtifact(
