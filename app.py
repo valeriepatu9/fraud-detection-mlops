@@ -1,4 +1,4 @@
-"""Application de scoring de fraude — NDA Partners (démo MLflow).
+"""Application de scoring de fraude — NDA (démo MLflow).
 
 L'UI est rendue en HTML/CSS custom (via components.html) pour un contrôle total
 du design. Mais les SCORES viennent du VRAI modèle chargé depuis le registry :
@@ -48,6 +48,7 @@ st.markdown("""
 
 SCENARIOS = {
     "normal": {
+        "expected": "legit",
         "features": [50.0, 14, 8.0, 0, 0, 3, 60.0, 0.83],
         "data": {
             "Référence": "TXN-20240614-00412",
@@ -60,6 +61,7 @@ SCENARIOS = {
         },
     },
     "fraude": {
+        "expected": "fraud",
         "features": [4200.0, 3, 1400.0, 1, 1, 7, 150.0, 28.0],
         "data": {
             "Référence": "TXN-20240614-00413",
@@ -69,6 +71,35 @@ SCENARIOS = {
             "Terminal": "Appareil non enregistré",
             "Pays habituel": "Non (habituel : France)",
             "Transactions / 24h": "7",
+        },
+    },
+    # Carte sans frais à l'étranger : zone peu apprise par un modèle entraîné
+    # avec 0,5 % de paiements à l'étranger. Même transaction, seule la vélocité
+    # change : 7 paiements en 24 h (règle étranger + loin + vélocité) = fraude.
+    "lisbonne_fraude": {
+        "expected": "fraud",
+        "features": [85.0, 15, 1450.0, 0, 1, 7, 70.0, round(85.0 / 70.0, 3)],
+        "data": {
+            "Référence": "TXN-20240614-00414",
+            "Montant": "85,00 €",
+            "Localisation": "Lisbonne, Portugal",
+            "Heure": "15:00 CET",
+            "Terminal": "iPhone 13 — enregistré",
+            "Pays habituel": "Non (habituel : France)",
+            "Transactions / 24h": "7",
+        },
+    },
+    "lisbonne_legit": {
+        "expected": "legit",
+        "features": [85.0, 15, 1450.0, 0, 1, 2, 70.0, round(85.0 / 70.0, 3)],
+        "data": {
+            "Référence": "TXN-20240614-00415",
+            "Montant": "85,00 €",
+            "Localisation": "Lisbonne, Portugal",
+            "Heure": "15:00 CET",
+            "Terminal": "iPhone 13 — enregistré",
+            "Pays habituel": "Non (habituel : France)",
+            "Transactions / 24h": "2",
         },
     },
 }
@@ -102,7 +133,7 @@ payload = {}
 for key, sc in SCENARIOS.items():
     X = pd.DataFrame([sc["features"]], columns=FEATURE_COLUMNS)
     score = float(model.predict_proba(X)[0][1])
-    payload[key] = {"score": score, "data": sc["data"]}
+    payload[key] = {"score": score, "data": sc["data"], "expected": sc["expected"]}
 
 logo_b64 = load_logo()
 if logo_b64:
@@ -166,7 +197,7 @@ TEMPLATE = r"""
   <aside class="sidebar">
     <div class="sidebar-logo">
       <div class="logo-mark">__LOGO__</div>
-      <div><div class="logo-text">NDA Partners</div><div class="logo-sub">Fraud Intelligence</div></div>
+      <div><div class="logo-text">NDA</div><div class="logo-sub">Fraud Intelligence</div></div>
     </div>
     <div>
       <div class="s-label">Environnement</div>
@@ -178,12 +209,14 @@ TEMPLATE = r"""
   </aside>
   <main class="main">
     <div class="title">Fraud Intelligence</div>
-    <div class="sub">Crédit Agricole · Scoring de transactions en temps réel</div>
+    <div class="sub">Banque de démonstration · Scoring de transactions en temps réel</div>
     <div class="badge">Modèle actif &nbsp;/&nbsp; <strong>__ALGO__</strong> &nbsp;·&nbsp; v__VERSION__ &nbsp;·&nbsp; <span class="alias">@__ALIAS__</span></div>
     <div class="sc-label">Sélectionner une transaction</div>
     <div class="sc-grid">
-      <div class="sc-btn" id="b-n" onclick="pick('normal')"><span class="dot dot-g"></span><div><div class="sc-t">Transaction standard</div><div class="sc-d">50€ · Paris · 14h · appareil connu</div></div></div>
-      <div class="sc-btn" id="b-f" onclick="pick('fraude')"><span class="dot dot-r"></span><div><div class="sc-t">Transaction suspecte</div><div class="sc-d">4 200€ · Varsovie · 02h · inconnu</div></div></div>
+      <div class="sc-btn" id="b-normal" onclick="pick('normal')"><span class="dot dot-g"></span><div><div class="sc-t">Transaction standard</div><div class="sc-d">50€ · Paris · 14h · appareil connu</div></div></div>
+      <div class="sc-btn" id="b-fraude" onclick="pick('fraude')"><span class="dot dot-r"></span><div><div class="sc-t">Transaction suspecte</div><div class="sc-d">4 200€ · Varsovie · 02h · inconnu</div></div></div>
+      <div class="sc-btn" id="b-lisbonne_legit" onclick="pick('lisbonne_legit')"><span class="dot dot-g"></span><div><div class="sc-t">Achat à l'étranger</div><div class="sc-d">85€ · Lisbonne · 15h · appareil connu · 2 tx/24h</div></div></div>
+      <div class="sc-btn" id="b-lisbonne_fraude" onclick="pick('lisbonne_fraude')"><span class="dot dot-r"></span><div><div class="sc-t">Rafale à l'étranger</div><div class="sc-d">85€ · Lisbonne · 15h · appareil connu · 7 tx/24h</div></div></div>
     </div>
     <div id="result" class="hidden">
       <div class="card"><div class="card-label">Détail de la transaction</div><table id="tx"></table></div>
@@ -203,10 +236,9 @@ TEMPLATE = r"""
 const DATA = __DATA__;
 const THRESH = __THRESH__;
 function pick(k){
-  document.getElementById('b-n').classList.remove('on-n');
-  document.getElementById('b-f').classList.remove('on-f');
-  document.getElementById(k==='normal'?'b-n':'b-f').classList.add(k==='normal'?'on-n':'on-f');
-  const s = DATA[k]; const score = s.score; const fraud = score >= THRESH;
+  Object.keys(DATA).forEach(x => document.getElementById('b-'+x).classList.remove('on-n','on-f'));
+  const s = DATA[k];
+  document.getElementById('b-'+k).classList.add(s.expected==='fraud'?'on-f':'on-n'); const score = s.score; const fraud = score >= THRESH;
   document.getElementById('tx').innerHTML = Object.entries(s.data).map(([a,b])=>`<tr><td>${a}</td><td>${b}</td></tr>`).join('');
   const num = document.getElementById('num');
   num.textContent = score.toFixed(3); num.className = 'sc-num ' + (fraud?'num-d':'num-s');
@@ -214,7 +246,7 @@ function pick(k){
   bar.style.width = (score*100).toFixed(1)+'%'; bar.className = 'bar-fill ' + (fraud?'fill-d':'fill-s');
   document.getElementById('v-legit').className = 'verdict v-s' + (fraud?' hidden':'');
   document.getElementById('v-fraud').className = 'verdict v-d' + (fraud?'':' hidden');
-  document.getElementById('v-warn').className = 'warn' + ((k==='fraude'&&!fraud)?'':' hidden');
+  document.getElementById('v-warn').className = 'warn' + ((s.expected==='fraud'&&!fraud)?'':' hidden');
   document.getElementById('result').classList.remove('hidden');
 }
 </script></body></html>
